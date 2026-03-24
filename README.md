@@ -1,0 +1,14 @@
+[![Go Reference](https://pkg.go.dev/badge/github.com/k8stopologyawareschedwg/numalocality.svg)](https://pkg.go.dev/github.com/k8stopologyawareschedwg/numalocality)
+
+# numalocality: efficient per-NUMA container placement encoding
+
+This package provides wire-efficient encoding of the NUMA locality of kubernetes containers.
+"NUMA Locality" means the single NUMA node from which a container gets all its exclusively assigned resources,
+like devices, CPU cores, memory areas. If, for example, a container C1 has all resources assigned and pinned
+to the same NUMA node N, we therefore classify C1 with NUMA Affinity to N (C1=N).
+Multi-affinity is not supported yet.
+
+## LICENSE
+
+apache v2
+
