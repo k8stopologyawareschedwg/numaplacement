@@ -17,7 +17,14 @@
 
 package numaplacement
 
-import "github.com/cespare/xxhash/v2"
+import (
+	"errors"
+	"fmt"
+	"strconv"
+	"strings"
+
+	"github.com/cespare/xxhash/v2"
+)
 
 const (
 	// AttributeMetadata is the NRT top-level attribute declaring the version
@@ -36,7 +43,20 @@ const (
 	// Version is the version of this fingerprint. You should
 	// only compare compatible versions.
 	// A Version is always 4 bytes long, in the form v\X\X\X
-	Version = "v001"
+	Version              = "v001"
+	UnknownMetadataValue = -1
+)
+
+const (
+	metadataSeparator = "::"
+)
+
+var (
+	ErrMalformedMetadata     = errors.New("malformed metadata")
+	ErrUnknownMetadata       = errors.New("unknown metadata field")
+	ErrMalformedMetadataPair = errors.New("malformed metadata pair")
+	ErrMissingMetadataKey    = errors.New("missing metadata key")
+	ErrMissingMetadataValue  = errors.New("missing metadata value")
 )
 
 type Hasher interface {
@@ -81,19 +101,82 @@ type ContainerAffinity struct {
 // easily the applicability of this package.
 type Payload struct {
 	// Number of containers this info represents
-	Containers int
+	Containers int `numaloc:"cc"`
 	// Number of NUMA nodes
-	NUMANodes int
+	NUMANodes int `numaloc:"nn"`
 	// Index of busiest NUMA node, therefore omitted on wire
-	BusiestNode int
+	BusiestNode int `numaloc:"bn"`
 	// map NUMANodeID -> LEB89-encoded placement vector string
 	Vectors map[int]string
 }
 
-func UnpackMetadataInto(pl *Payload, metadata string) {}
+type metaField struct {
+	name string
+	ptr  *int
+}
+
+func setMetaField(fields []metaField, rawField string) error {
+	idx := strings.Index(rawField, "=")
+	if idx == -1 {
+		return ErrMalformedMetadataPair
+	}
+	if idx == 0 {
+		return ErrMissingMetadataKey
+	}
+	if idx >= len(rawField)-1 {
+		return ErrMissingMetadataValue
+	}
+	fieldName := rawField[:idx]
+	fieldVal, err := strconv.Atoi(rawField[idx+1:])
+	if err != nil {
+		return fmt.Errorf("error while parsing %q: %w", rawField, err)
+	}
+	for _, field := range fields {
+		if field.name == fieldName {
+			*field.ptr = fieldVal
+			return nil
+		}
+	}
+	return ErrUnknownMetadata
+}
+
+func UnpackMetadataInto(pl *Payload, metadata string) error {
+	fields := []metaField{
+		{
+			name: "cc",
+			ptr:  &pl.Containers,
+		},
+		{
+			name: "nn",
+			ptr:  &pl.NUMANodes,
+		},
+		{
+			name: "bn",
+			ptr:  &pl.BusiestNode,
+		},
+	}
+	metaPfx := Prefix + Version + metadataSeparator
+	if !strings.HasPrefix(metadata, metaPfx) {
+		return ErrMalformedMetadata
+	}
+	for _, field := range fields {
+		*field.ptr = UnknownMetadataValue
+	}
+	for _, rawField := range strings.Split(strings.TrimPrefix(metadata, metaPfx), metadataSeparator) {
+		if err := setMetaField(fields, rawField); err != nil {
+			return fmt.Errorf("error while setting %q: %w", rawField, err)
+		}
+	}
+	return nil
+}
 
 func (pl Payload) PackMetadata() string {
-	return ""
+	vals := []string{
+		fmt.Sprintf("cc=%d", pl.Containers),
+		fmt.Sprintf("nn=%d", pl.NUMANodes),
+		fmt.Sprintf("bn=%d", pl.BusiestNode),
+	}
+	return Prefix + Version + metadataSeparator + strings.Join(vals, metadataSeparator)
 }
 
 // Encoder handles a full set of containers by their name, and their affinity,
