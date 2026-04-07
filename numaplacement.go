@@ -41,7 +41,7 @@ const (
 
 type Hasher interface {
 	Reset()
-	WriteString(s string)
+	WriteString(string) (int, error)
 	Sum64() uint64
 }
 
@@ -131,7 +131,7 @@ func (enc *Encoder) EncodeContainer(namespace, podName, containerName string, nu
 }
 
 func (enc *Encoder) Result() (Payload, error) {
-	return Payload{}
+	return Payload{}, nil
 }
 
 // Info represents compactly-stored NUMA locality information.
@@ -163,7 +163,7 @@ type Decoder struct {
 
 func NewDecoder(pl Payload, ids ...ContainerID) *Decoder {
 	dec := &Decoder{
-		payload: Payload,
+		payload: pl,
 		hasher:  xxhash.New(),
 	}
 	return dec.Decode(ids...)

@@ -3,6 +3,8 @@
 
 package leb89
 
+import "strings"
+
 const (
 	Unmapped int32 = -1
 )
@@ -36,13 +38,14 @@ func init() {
 	}
 }
 
-// EncodeIntoBytes encodes v >= 0 as a LEB89 byte sequence appended to dst.
-// Values 0-63: 1 byte (terminal).
-// Values 64-1663: 2 bytes (1 continuation + terminal).
-// Values 1664-40063: 3 bytes (2 continuations + terminal).
-func EncodeIntoBytes(dst []byte, v int32) []byte {
+// EncodeInto encodes v >= 0 as a LEB89 character sequence written to w.
+// Values 0-63: 1 character (terminal).
+// Values 64-1663: 2 characters (1 continuation + terminal).
+// Values 1664-40063: 3 characters (2 continuations + terminal).
+func EncodeInto(w *strings.Builder, v int32) {
 	if v < int32(leb89NumTerminal) {
-		return append(dst, safeASCII[v])
+		w.WriteByte(safeASCII[v])
+		return
 	}
 	v -= int32(leb89NumTerminal)
 
@@ -60,9 +63,17 @@ func EncodeIntoBytes(dst []byte, v int32) []byte {
 		}
 	}
 	for i := n - 1; i >= 0; i-- {
-		dst = append(dst, safeASCII[leb89NumTerminal+digits[i]])
+		w.WriteByte(safeASCII[leb89NumTerminal+digits[i]])
 	}
-	return append(dst, safeASCII[terminal])
+	w.WriteByte(safeASCII[terminal])
+}
+
+// EncodeIntoString encodes v >= 0 as a LEB89 string.
+// Convenience wrapper around EncodeInto for single-value encoding.
+func EncodeIntoString(v int32) string {
+	var w strings.Builder
+	EncodeInto(&w, v)
+	return w.String()
 }
 
 // DecodeFromString reads one LEB89-encoded value from s[pos:].

@@ -4,6 +4,7 @@
 package leb89
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -75,11 +76,11 @@ func TestLeb89EncodeDecode(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			encoded := EncodeIntoBytes(nil, tt.value)
+			encoded := EncodeIntoString(tt.value)
 			if len(encoded) != tt.chars {
-				t.Errorf("EncodeIntoBytes(%d): got %d chars %q, want %d chars", tt.value, len(encoded), encoded, tt.chars)
+				t.Errorf("EncodeIntoString(%d): got %d chars %q, want %d chars", tt.value, len(encoded), encoded, tt.chars)
 			}
-			decoded, pos := DecodeFromString(string(encoded), 0)
+			decoded, pos := DecodeFromString(encoded, 0)
 			if decoded != tt.value {
 				t.Errorf("roundtrip(%d): decoded %d", tt.value, decoded)
 			}
@@ -92,8 +93,8 @@ func TestLeb89EncodeDecode(t *testing.T) {
 
 func TestLeb89RoundTrip(t *testing.T) {
 	for v := int32(0); v < 50000; v++ {
-		encoded := EncodeIntoBytes(nil, v)
-		decoded, pos := DecodeFromString(string(encoded), 0)
+		encoded := EncodeIntoString(v)
+		decoded, pos := DecodeFromString(encoded, 0)
 		if decoded != v {
 			t.Fatalf("roundtrip failed at %d: got %d", v, decoded)
 		}
@@ -105,9 +106,10 @@ func TestLeb89RoundTrip(t *testing.T) {
 
 func TestLeb89OutputIsSafeASCII(t *testing.T) {
 	for v := int32(0); v < 50000; v++ {
-		for _, b := range EncodeIntoBytes(nil, v) {
-			if asciiIndex[b] == -1 {
-				t.Fatalf("value %d produced byte 0x%02X which is not in the safe alphabet", v, b)
+		encoded := EncodeIntoString(v)
+		for i := 0; i < len(encoded); i++ {
+			if asciiIndex[encoded[i]] == -1 {
+				t.Fatalf("value %d produced byte 0x%02X which is not in the safe alphabet", v, encoded[i])
 			}
 		}
 	}
@@ -116,7 +118,7 @@ func TestLeb89OutputIsSafeASCII(t *testing.T) {
 func TestLeb89ValueRangeBoundaries(t *testing.T) {
 	assertLen := func(t *testing.T, v int32, wantLen int) {
 		t.Helper()
-		if got := len(EncodeIntoBytes(nil, v)); got != wantLen {
+		if got := len(EncodeIntoString(v)); got != wantLen {
 			t.Errorf("value %d: got %d chars, want %d", v, got, wantLen)
 		}
 	}
@@ -134,25 +136,27 @@ func TestLeb89ValueRangeBoundaries(t *testing.T) {
 	assertLen(t, 1000063, 4)
 }
 
-func TestLeb89EncodeAppends(t *testing.T) {
-	buf := []byte("prefix")
-	buf = EncodeIntoBytes(buf, 5)
-	if string(buf[:6]) != "prefix" {
-		t.Fatalf("EncodeIntoBytes corrupted existing prefix: %q", buf)
+func TestLeb89EncodeIntoBuilder(t *testing.T) {
+	var w strings.Builder
+	w.WriteString("prefix")
+	EncodeInto(&w, 5)
+	got := w.String()
+	if got[:6] != "prefix" {
+		t.Fatalf("EncodeInto corrupted existing prefix: %q", got)
 	}
-	if len(buf) != 7 {
-		t.Fatalf("expected length 7, got %d", len(buf))
+	if len(got) != 7 {
+		t.Fatalf("expected length 7, got %d", len(got))
 	}
 }
 
 func TestLeb89DecodeMultipleValues(t *testing.T) {
 	values := []int32{0, 7, 63, 64, 500, 1663, 1664, 2047, 40063, 40064}
-	var buf []byte
+	var w strings.Builder
 	for _, v := range values {
-		buf = EncodeIntoBytes(buf, v)
+		EncodeInto(&w, v)
 	}
 
-	s := string(buf)
+	s := w.String()
 	pos := 0
 	for i, want := range values {
 		got, newPos := DecodeFromString(s, pos)
@@ -178,13 +182,9 @@ func TestLeb89DecodeEmpty(t *testing.T) {
 
 func TestLeb89DecodeMidString(t *testing.T) {
 	// Encode two values, decode starting from the second one
-	var buf []byte
-	buf = EncodeIntoBytes(buf, 42)
-	firstLen := len(buf)
-	buf = EncodeIntoBytes(buf, 99)
-
-	s := string(buf)
-	v, pos := DecodeFromString(s, firstLen)
+	first := EncodeIntoString(42)
+	s := first + EncodeIntoString(99)
+	v, pos := DecodeFromString(s, len(first))
 	if v != 99 {
 		t.Errorf("mid-string decode: got %d, want 99", v)
 	}
@@ -194,7 +194,6 @@ func TestLeb89DecodeMidString(t *testing.T) {
 }
 
 func BenchmarkLeb89Encode(b *testing.B) {
-	buf := make([]byte, 0, 16)
 	for _, bc := range []struct {
 		name string
 		val  int32
@@ -204,8 +203,11 @@ func BenchmarkLeb89Encode(b *testing.B) {
 		{"3char", 2047},
 	} {
 		b.Run(bc.name, func(b *testing.B) {
+			var w strings.Builder
 			for i := 0; i < b.N; i++ {
-				_ = EncodeIntoBytes(buf[:0], bc.val)
+				w.Reset()
+				EncodeInto(&w, bc.val)
+				_ = w.String()
 			}
 		})
 	}
@@ -220,7 +222,7 @@ func BenchmarkLeb89Decode(b *testing.B) {
 		{"2char", 500},
 		{"3char", 2047},
 	} {
-		s := string(EncodeIntoBytes(nil, bc.val))
+		s := EncodeIntoString(bc.val)
 		b.Run(bc.name, func(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				DecodeFromString(s, 0)
