@@ -12,13 +12,15 @@ tools: leb89dump  ## Build all tools
 leb89dump: tools/leb89dump/main.go  ## Build the LEB89 alphabet dump tool
 	go build -o _out/$@ ./tools/leb89dump
 
+PKGS = $(shell go list ./... | grep -v /tools/)
+
 ##@ testing
 
 test-unit:  ## Run unit tests
-	go test ./...
+	go test $(PKGS)
 
 test-unit-cover:  ## Run unit tests with coverage report
-	go test -coverprofile=coverage.out ./...
+	go test -coverprofile=coverage.out $(PKGS)
 
 cover-view:  ## View the console coverage report
 	go tool cover -func=coverage.out
