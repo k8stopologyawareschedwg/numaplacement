@@ -43,12 +43,12 @@ func TestLeb89AlphabetReverseMap(t *testing.T) {
 }
 
 func TestLeb89TerminalContinuationSplit(t *testing.T) {
-	for i := 0; i < leb89NumTerminal; i++ {
+	for i := 0; i < NumTerminal; i++ {
 		if safeASCII[i] < '!' || safeASCII[i] > 'e' {
 			t.Errorf("terminal index %d is %q, expected '!'..'e'", i, safeASCII[i])
 		}
 	}
-	for i := leb89NumTerminal; i < 89; i++ {
+	for i := NumTerminal; i < 89; i++ {
 		if safeASCII[i] < 'f' || safeASCII[i] > '~' {
 			t.Errorf("continuation index %d is %q, expected 'f'..'~'", i, safeASCII[i])
 		}
