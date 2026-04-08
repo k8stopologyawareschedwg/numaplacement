@@ -9,3 +9,13 @@ help: ## Display this help.
 
 test-unit:  ## Run unit tests
 	go test ./...
+
+test-unit-cover:  ## Run unit tests with coverage report
+	go test -coverprofile=coverage.out ./...
+
+cover-view:  ## View the console coverage report
+	go tool cover -func=coverage.out
+
+cover-view-html:  ## View the HTML coverage report
+	go tool cover -html=coverage.out
+	
