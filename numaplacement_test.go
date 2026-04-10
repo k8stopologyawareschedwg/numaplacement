@@ -1450,6 +1450,46 @@ func TestDecoderResult(t *testing.T) {
 			},
 			wantErr: ErrCorruptedNUMAVector,
 		},
+		{
+			name: "error path: forged data: tampered vector encoding - duplicate offset, same vector",
+			payload: Payload{
+				Containers:  5,
+				NUMANodes:   2,
+				BusiestNode: 0,
+				Vectors: map[int]string{
+					1: "#!",
+				},
+			},
+			idents: []ContainerID{
+				{Namespace: "ns1", PodName: "pod1", ContainerName: "cnt1"},
+				{Namespace: "ns1", PodName: "pod2", ContainerName: "cnt1"},
+				{Namespace: "ns1", PodName: "pod3", ContainerName: "cnt1"},
+				{Namespace: "ns2", PodName: "pod1", ContainerName: "cnt1"},
+				{Namespace: "ns2", PodName: "pod2", ContainerName: "cnt1"},
+			},
+			wantErr: ErrDuplicatedNUMAVector,
+		},
+		{
+			name: "error path: forged data: tampered vector encoding - duplicate offset, different vector",
+			payload: Payload{
+				Containers:  5,
+				NUMANodes:   4,
+				BusiestNode: 0,
+				Vectors: map[int]string{
+					1: "#",
+					2: "#",
+					3: "%",
+				},
+			},
+			idents: []ContainerID{
+				{Namespace: "ns1", PodName: "pod1", ContainerName: "cnt1"},
+				{Namespace: "ns2", PodName: "pod1", ContainerName: "cnt1"},
+				{Namespace: "ns3", PodName: "pod1", ContainerName: "cnt1"},
+				{Namespace: "ns4", PodName: "pod1", ContainerName: "cnt1"},
+				{Namespace: "ns1", PodName: "pod2", ContainerName: "cnt1"},
+			},
+			wantErr: ErrDuplicatedNUMAVector,
+		},
 	}
 
 	for _, tt := range tests {
