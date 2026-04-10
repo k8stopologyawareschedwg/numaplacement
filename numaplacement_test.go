@@ -72,13 +72,13 @@ func TestContainerIDHash(t *testing.T) {
 }
 
 func TestInfoAffinity(t *testing.T) {
-	runInfoAffinityTests(t, infoAffinityTestCases(), func(info *Info, cid ContainerID) (int, error) {
+	runInfoAffinityTests(t, infoAffinityTestCases(), func(info Info, cid ContainerID) (int, error) {
 		return info.NUMAAffinity(cid)
 	})
 }
 
 func TestInfoAffinityContainer(t *testing.T) {
-	runInfoAffinityTests(t, infoAffinityTestCases(), func(info *Info, cid ContainerID) (int, error) {
+	runInfoAffinityTests(t, infoAffinityTestCases(), func(info Info, cid ContainerID) (int, error) {
 		return info.NUMAAffinityContainer(cid.Namespace, cid.PodName, cid.ContainerName)
 	})
 }
@@ -185,11 +185,11 @@ func infoAffinityTestCases() []infoAffinityTestCase {
 	}
 }
 
-func runInfoAffinityTests(t *testing.T, tests []infoAffinityTestCase, query func(info *Info, cid ContainerID) (int, error)) {
+func runInfoAffinityTests(t *testing.T, tests []infoAffinityTestCase, query func(info Info, cid ContainerID) (int, error)) {
 	t.Helper()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			info := NewInfo()
+			info := NewEncodedInfo()
 			for _, preFill := range tt.preFills {
 				info.numaLocality[preFill.ID.Hash()] = preFill.NUMANode
 			}
@@ -214,7 +214,7 @@ func TestInfoAffinityContainerMatchesNUMAAffinity(t *testing.T) {
 		{ID: ContainerID{Namespace: "ns-a", PodName: "pod-1", ContainerName: "sidecar"}, NUMANode: 3},
 		{ID: ContainerID{Namespace: "ns-b", PodName: "pod-2", ContainerName: "worker"}, NUMANode: 7},
 	}
-	info := NewInfo()
+	info := NewEncodedInfo()
 	for _, pf := range preFills {
 		info.numaLocality[pf.ID.Hash()] = pf.NUMANode
 	}
@@ -233,35 +233,41 @@ func TestInfoAffinityContainerMatchesNUMAAffinity(t *testing.T) {
 
 func TestPackUnpackMetadataRoundtrip(t *testing.T) {
 	tests := []struct {
-		name        string
-		containers  int
-		numaNodes   int
-		busiestNode int
+		name           string
+		vectorEncoding string
+		containers     int
+		numaNodes      int
+		busiestNode    int
 	}{
-		{name: "all zeros", containers: 0, numaNodes: 0, busiestNode: 0},
-		{name: "single container single NUMA", containers: 1, numaNodes: 1, busiestNode: 0},
-		{name: "typical two NUMA", containers: 4, numaNodes: 2, busiestNode: 1},
-		{name: "large values", containers: 128, numaNodes: 8, busiestNode: 7},
-		{name: "busiest is first node", containers: 10, numaNodes: 4, busiestNode: 0},
-		{name: "busiest is last node", containers: 10, numaNodes: 4, busiestNode: 3},
-		{name: "negative busiest node", containers: 5, numaNodes: 2, busiestNode: -1},
-		{name: "all negative", containers: -1, numaNodes: -1, busiestNode: -1},
-		{name: "mixed negative positive", containers: -1, numaNodes: 2, busiestNode: 0},
-		{name: "large container count", containers: 10000, numaNodes: 2, busiestNode: 1},
-		{name: "many NUMA nodes", containers: 16, numaNodes: 64, busiestNode: 32},
+		{name: "all zeros leb89", vectorEncoding: VectorEncodingLEB89, containers: 0, numaNodes: 0, busiestNode: 0},
+		{name: "single container single NUMA", vectorEncoding: VectorEncodingLEB89, containers: 1, numaNodes: 1, busiestNode: 0},
+		{name: "typical two NUMA", vectorEncoding: VectorEncodingLEB89, containers: 4, numaNodes: 2, busiestNode: 1},
+		{name: "large values", vectorEncoding: VectorEncodingLEB89, containers: 128, numaNodes: 8, busiestNode: 7},
+		{name: "busiest is first node", vectorEncoding: VectorEncodingLEB89, containers: 10, numaNodes: 4, busiestNode: 0},
+		{name: "busiest is last node", vectorEncoding: VectorEncodingLEB89, containers: 10, numaNodes: 4, busiestNode: 3},
+		{name: "negative busiest node", vectorEncoding: VectorEncodingLEB89, containers: 5, numaNodes: 2, busiestNode: -1},
+		{name: "all negative", vectorEncoding: VectorEncodingLEB89, containers: -1, numaNodes: -1, busiestNode: -1},
+		{name: "mixed negative positive", vectorEncoding: VectorEncodingLEB89, containers: -1, numaNodes: 2, busiestNode: 0},
+		{name: "large container count", vectorEncoding: VectorEncodingLEB89, containers: 10000, numaNodes: 2, busiestNode: 1},
+		{name: "many NUMA nodes", vectorEncoding: VectorEncodingLEB89, containers: 16, numaNodes: 64, busiestNode: 32},
+		{name: "plain encoding", vectorEncoding: "plain", containers: 4, numaNodes: 2, busiestNode: 1},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			orig := Payload{
-				Containers:  tt.containers,
-				NUMANodes:   tt.numaNodes,
-				BusiestNode: tt.busiestNode,
+				VectorEncoding: tt.vectorEncoding,
+				Containers:     tt.containers,
+				NUMANodes:      tt.numaNodes,
+				BusiestNode:    tt.busiestNode,
 			}
 			packed := orig.PackMetadata()
 
 			var got Payload
 			if err := UnpackMetadataInto(&got, packed); err != nil {
 				t.Fatalf("UnpackMetadataInto() error = %v", err)
+			}
+			if got.VectorEncoding != tt.vectorEncoding {
+				t.Errorf("VectorEncoding = %q, want %q", got.VectorEncoding, tt.vectorEncoding)
 			}
 			if got.Containers != tt.containers {
 				t.Errorf("Containers = %d, want %d", got.Containers, tt.containers)
@@ -283,19 +289,24 @@ func TestPackMetadata(t *testing.T) {
 		expected string
 	}{
 		{
-			name:     "zeros",
-			payload:  Payload{Containers: 0, NUMANodes: 0, BusiestNode: 0},
-			expected: "npv0v001::cc=0::nn=0::bn=0",
+			name:     "zeros with leb89",
+			payload:  Payload{VectorEncoding: VectorEncodingLEB89, Containers: 0, NUMANodes: 0, BusiestNode: 0},
+			expected: "npv0v001::ve=leb89::cc=0::nn=0::bn=0",
 		},
 		{
 			name:     "typical values",
-			payload:  Payload{Containers: 4, NUMANodes: 2, BusiestNode: 1},
-			expected: "npv0v001::cc=4::nn=2::bn=1",
+			payload:  Payload{VectorEncoding: VectorEncodingLEB89, Containers: 4, NUMANodes: 2, BusiestNode: 1},
+			expected: "npv0v001::ve=leb89::cc=4::nn=2::bn=1",
 		},
 		{
 			name:     "negative values",
-			payload:  Payload{Containers: -1, NUMANodes: -1, BusiestNode: -1},
-			expected: "npv0v001::cc=-1::nn=-1::bn=-1",
+			payload:  Payload{VectorEncoding: VectorEncodingLEB89, Containers: -1, NUMANodes: -1, BusiestNode: -1},
+			expected: "npv0v001::ve=leb89::cc=-1::nn=-1::bn=-1",
+		},
+		{
+			name:     "plain encoding",
+			payload:  Payload{VectorEncoding: "plain", Containers: 4, NUMANodes: 2, BusiestNode: 1},
+			expected: "npv0v001::ve=plain::cc=4::nn=2::bn=1",
 		},
 	}
 	for _, tt := range tests {
@@ -378,13 +389,17 @@ func TestUnpackMetadataIntoInitializesFields(t *testing.T) {
 	// Verify that fields are reset to unknownMetadataValue before parsing.
 	// We use a valid metadata string, so all fields should be overwritten.
 	pl := Payload{
-		Containers:  999,
-		NUMANodes:   999,
-		BusiestNode: 999,
+		VectorEncoding: "stale",
+		Containers:     999,
+		NUMANodes:      999,
+		BusiestNode:    999,
 	}
-	metadata := "npv0v001::cc=3::nn=2::bn=1"
+	metadata := "npv0v001::ve=leb89::cc=3::nn=2::bn=1"
 	if err := UnpackMetadataInto(&pl, metadata); err != nil {
 		t.Fatalf("UnpackMetadataInto() error = %v", err)
+	}
+	if pl.VectorEncoding != VectorEncodingLEB89 {
+		t.Errorf("VectorEncoding = %q, want %q", pl.VectorEncoding, VectorEncodingLEB89)
 	}
 	if pl.Containers != 3 {
 		t.Errorf("Containers = %d, want 3", pl.Containers)
@@ -399,13 +414,17 @@ func TestUnpackMetadataIntoInitializesFields(t *testing.T) {
 
 func TestUnpackMetadataPartialUpdates(t *testing.T) {
 	pl := Payload{
-		Containers: 128,
+		VectorEncoding: "stale",
+		Containers:     128,
 	}
 	metadata := "npv0v001::nn=8::bn=3"
 	if err := UnpackMetadataInto(&pl, metadata); err != nil {
 		t.Fatalf("UnpackMetadataInto() error = %v", err)
 	}
-	if pl.Containers != UnknownMetadataValue { // overridden to "unknwon"
+	if pl.VectorEncoding != "" {
+		t.Errorf("VectorEncoding = %q, want empty", pl.VectorEncoding)
+	}
+	if pl.Containers != UnknownMetadataValue { // overridden to "unknown"
 		t.Errorf("Containers = %d, want -1", pl.Containers)
 	}
 	if pl.NUMANodes != 8 {
@@ -423,47 +442,61 @@ func TestPayloadValidate(t *testing.T) {
 		wantErr error
 	}{
 		{
-			name:    "empty",
-			pl:      Payload{},
+			name: "empty",
+			pl: Payload{
+				VectorEncoding: VectorEncodingLEB89,
+			},
 			wantErr: ErrInconsistentNUMANodes,
+		},
+		{
+			name: "mismatching vector encoding",
+			pl: Payload{
+				VectorEncoding: "other",
+			},
+			wantErr: ErrUnsupportedVectorEncoding,
 		},
 		{
 			name: "zero containers",
 			pl: Payload{
-				NUMANodes: 1, // needed to avoid ErrInconsistentNUMANodes
+				NUMANodes:      1, // needed to avoid ErrInconsistentNUMANodes
+				VectorEncoding: VectorEncodingLEB89,
 			},
 			wantErr: nil,
 		},
 		{
 			name: "negative containers",
 			pl: Payload{
-				Containers: -1,
-				NUMANodes:  1, // needed to avoid ErrInconsistentNUMANodes
+				Containers:     -1,
+				NUMANodes:      1, // needed to avoid ErrInconsistentNUMANodes
+				VectorEncoding: VectorEncodingLEB89,
 			},
 			wantErr: ErrInconsistentContainerSet,
 		},
 		{
 			name: "negative busiest node",
 			pl: Payload{
-				Containers:  1,
-				NUMANodes:   1,
-				BusiestNode: -1,
+				Containers:     1,
+				NUMANodes:      1,
+				BusiestNode:    -1,
+				VectorEncoding: VectorEncodingLEB89,
 			},
 			wantErr: ErrInconsistentBusiestNode,
 		},
 		{
 			name: "oob busiest node",
 			pl: Payload{
-				Containers:  1,
-				NUMANodes:   8,
-				BusiestNode: 8,
+				Containers:     1,
+				NUMANodes:      8,
+				BusiestNode:    8,
+				VectorEncoding: VectorEncodingLEB89,
 			},
 			wantErr: ErrInconsistentBusiestNode,
 		},
 		{
 			name: "more vectors than containers",
 			pl: Payload{
-				NUMANodes: 1, // needed to avoid ErrInconsistentNUMANodes
+				NUMANodes:      1, // needed to avoid ErrInconsistentNUMANodes
+				VectorEncoding: VectorEncodingLEB89,
 				Vectors: map[int]string{
 					0: "#$'H", // we don't even need a valid leb89 encoding - Validate will not check semantic correctness
 				},
@@ -473,8 +506,9 @@ func TestPayloadValidate(t *testing.T) {
 		{
 			name: "more vectors than NUMA nodes",
 			pl: Payload{
-				Containers: 8,
-				NUMANodes:  1, // needed to avoid ErrInconsistentNUMANodes
+				Containers:     8,
+				NUMANodes:      1, // needed to avoid ErrInconsistentNUMANodes
+				VectorEncoding: VectorEncodingLEB89,
 				Vectors: map[int]string{
 					0: "!#", // we don't even need a valid leb89 encoding - Validate will not check semantic correctness
 					1: "$%",
@@ -485,8 +519,9 @@ func TestPayloadValidate(t *testing.T) {
 		{
 			name: "more vectors than NUMA nodes - highest ID",
 			pl: Payload{
-				Containers: 8,
-				NUMANodes:  2,
+				Containers:     8,
+				NUMANodes:      2,
+				VectorEncoding: VectorEncodingLEB89,
 				Vectors: map[int]string{
 					2: "!#", // we don't even need a valid leb89 encoding - Validate will not check semantic correctness
 				},
@@ -496,8 +531,9 @@ func TestPayloadValidate(t *testing.T) {
 		{
 			name: "vector with incorrect key",
 			pl: Payload{
-				Containers: 8,
-				NUMANodes:  2,
+				Containers:     8,
+				NUMANodes:      2,
+				VectorEncoding: VectorEncodingLEB89,
 				Vectors: map[int]string{
 					-1: "!#", // we don't even need a valid leb89 encoding - Validate will not check semantic correctness
 				},
@@ -507,9 +543,10 @@ func TestPayloadValidate(t *testing.T) {
 		{
 			name: "vector matching busiest node",
 			pl: Payload{
-				Containers:  8,
-				NUMANodes:   2,
-				BusiestNode: 1,
+				Containers:     8,
+				NUMANodes:      2,
+				BusiestNode:    1,
+				VectorEncoding: VectorEncodingLEB89,
 				Vectors: map[int]string{
 					1: "$%'()*",
 				},
@@ -519,9 +556,10 @@ func TestPayloadValidate(t *testing.T) {
 		{
 			name: "vector empty string is valid per spec",
 			pl: Payload{
-				Containers:  8,
-				NUMANodes:   2,
-				BusiestNode: 1,
+				Containers:     8,
+				NUMANodes:      2,
+				BusiestNode:    1,
+				VectorEncoding: VectorEncodingLEB89,
 				Vectors: map[int]string{
 					0: "",
 				},
@@ -530,17 +568,19 @@ func TestPayloadValidate(t *testing.T) {
 		{
 			name: "zero NUMA nodes",
 			pl: Payload{
-				Containers: 1,
-				NUMANodes:  0,
+				Containers:     1,
+				NUMANodes:      0,
+				VectorEncoding: VectorEncodingLEB89,
 			},
 			wantErr: ErrInconsistentNUMANodes,
 		},
 		{
 			name: "typical valid payload",
 			pl: Payload{
-				Containers:  4,
-				NUMANodes:   2,
-				BusiestNode: 0,
+				Containers:     4,
+				NUMANodes:      2,
+				BusiestNode:    0,
+				VectorEncoding: VectorEncodingLEB89,
 				Vectors: map[int]string{
 					1: "!#",
 				},
@@ -549,9 +589,10 @@ func TestPayloadValidate(t *testing.T) {
 		{
 			name: "valid payload multiple vectors",
 			pl: Payload{
-				Containers:  8,
-				NUMANodes:   4,
-				BusiestNode: 0,
+				Containers:     8,
+				NUMANodes:      4,
+				BusiestNode:    0,
+				VectorEncoding: VectorEncodingLEB89,
 				Vectors: map[int]string{
 					1: "!#",
 					2: "$%",
@@ -562,17 +603,19 @@ func TestPayloadValidate(t *testing.T) {
 		{
 			name: "single NUMA all on busiest",
 			pl: Payload{
-				Containers:  5,
-				NUMANodes:   1,
-				BusiestNode: 0,
+				Containers:     5,
+				NUMANodes:      1,
+				BusiestNode:    0,
+				VectorEncoding: VectorEncodingLEB89,
 			},
 		},
 		{
 			name: "busiest node at max valid",
 			pl: Payload{
-				Containers:  4,
-				NUMANodes:   4,
-				BusiestNode: 3,
+				Containers:     4,
+				NUMANodes:      4,
+				BusiestNode:    3,
+				VectorEncoding: VectorEncodingLEB89,
 				Vectors: map[int]string{
 					0: "!#",
 				},
@@ -581,9 +624,10 @@ func TestPayloadValidate(t *testing.T) {
 		{
 			name: "max valid vector count",
 			pl: Payload{
-				Containers:  8,
-				NUMANodes:   3,
-				BusiestNode: 0,
+				Containers:     8,
+				NUMANodes:      3,
+				BusiestNode:    0,
+				VectorEncoding: VectorEncodingLEB89,
 				Vectors: map[int]string{
 					1: "!#",
 					2: "$%",
@@ -593,17 +637,41 @@ func TestPayloadValidate(t *testing.T) {
 		{
 			name: "zero containers nil vectors",
 			pl: Payload{
-				Containers: 0,
-				NUMANodes:  2,
-				Vectors:    nil,
+				Containers:     0,
+				NUMANodes:      2,
+				VectorEncoding: VectorEncodingLEB89,
+				Vectors:        nil,
 			},
+		},
+		{
+			name: "valid vector encoding LEB89",
+			pl: Payload{
+				NUMANodes:      2,
+				VectorEncoding: VectorEncodingLEB89,
+			},
+		},
+		{
+			name: "unsupported vector encoding",
+			pl: Payload{
+				NUMANodes:      2,
+				VectorEncoding: "unknown",
+			},
+			wantErr: ErrUnsupportedVectorEncoding,
+		},
+		{
+			name: "empty vector encoding",
+			pl: Payload{
+				NUMANodes: 2,
+			},
+			wantErr: ErrUnsupportedVectorEncoding,
 		},
 		{
 			name: "vector key at NUMANodes boundary",
 			pl: Payload{
-				Containers:  4,
-				NUMANodes:   2,
-				BusiestNode: 0,
+				Containers:     4,
+				NUMANodes:      2,
+				BusiestNode:    0,
+				VectorEncoding: VectorEncodingLEB89,
 				Vectors: map[int]string{
 					2: "!#",
 				},
@@ -613,7 +681,7 @@ func TestPayloadValidate(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotErr := tt.pl.Validate()
+			gotErr := tt.pl.Validate(VectorEncodingLEB89)
 			if !errors.Is(gotErr, tt.wantErr) {
 				t.Errorf("got error = %q, want = %q", gotErr, tt.wantErr)
 			}
@@ -637,8 +705,8 @@ func TestInfoUpdate(t *testing.T) {
 	}
 
 	t.Run("empty source into empty target", func(t *testing.T) {
-		target := NewInfo()
-		source := NewInfo()
+		target := NewEncodedInfo()
+		source := NewEncodedInfo()
 		target.Update(source)
 
 		_, err := target.NUMAAffinity(ca1.ID)
@@ -648,8 +716,8 @@ func TestInfoUpdate(t *testing.T) {
 	})
 
 	t.Run("populated source into empty target", func(t *testing.T) {
-		target := NewInfo()
-		source := NewInfo()
+		target := NewEncodedInfo()
+		source := NewEncodedInfo()
 		source.numaLocality[ca1.ID.Hash()] = ca1.NUMANode
 		source.numaLocality[ca2.ID.Hash()] = ca2.NUMANode
 
@@ -667,10 +735,10 @@ func TestInfoUpdate(t *testing.T) {
 	})
 
 	t.Run("overwrites existing target data", func(t *testing.T) {
-		target := NewInfo()
+		target := NewEncodedInfo()
 		target.numaLocality[ca1.ID.Hash()] = ca1.NUMANode
 
-		source := NewInfo()
+		source := NewEncodedInfo()
 		source.numaLocality[ca2.ID.Hash()] = ca2.NUMANode
 
 		target.Update(source)
@@ -691,8 +759,8 @@ func TestInfoUpdate(t *testing.T) {
 	})
 
 	t.Run("clone independence from source", func(t *testing.T) {
-		target := NewInfo()
-		source := NewInfo()
+		target := NewEncodedInfo()
+		source := NewEncodedInfo()
 		source.numaLocality[ca1.ID.Hash()] = ca1.NUMANode
 
 		target.Update(source)
@@ -727,8 +795,8 @@ func TestInfoTake(t *testing.T) {
 	}
 
 	t.Run("empty source into empty target", func(t *testing.T) {
-		target := NewInfo()
-		source := NewInfo()
+		target := NewEncodedInfo()
+		source := NewEncodedInfo()
 		target.Take(source)
 
 		if source.numaLocality != nil {
@@ -741,8 +809,8 @@ func TestInfoTake(t *testing.T) {
 	})
 
 	t.Run("populated source into empty target", func(t *testing.T) {
-		target := NewInfo()
-		source := NewInfo()
+		target := NewEncodedInfo()
+		source := NewEncodedInfo()
 		source.numaLocality[ca1.ID.Hash()] = ca1.NUMANode
 		source.numaLocality[ca2.ID.Hash()] = ca2.NUMANode
 
@@ -763,10 +831,10 @@ func TestInfoTake(t *testing.T) {
 	})
 
 	t.Run("overwrites existing target data", func(t *testing.T) {
-		target := NewInfo()
+		target := NewEncodedInfo()
 		target.numaLocality[ca1.ID.Hash()] = ca1.NUMANode
 
-		source := NewInfo()
+		source := NewEncodedInfo()
 		source.numaLocality[ca2.ID.Hash()] = ca2.NUMANode
 
 		target.Take(source)
@@ -790,8 +858,8 @@ func TestInfoTake(t *testing.T) {
 	})
 
 	t.Run("move semantics shares underlying map", func(t *testing.T) {
-		target := NewInfo()
-		source := NewInfo()
+		target := NewEncodedInfo()
+		source := NewEncodedInfo()
 		source.numaLocality[ca1.ID.Hash()] = ca1.NUMANode
 
 		target.Take(source)
@@ -1053,9 +1121,10 @@ func TestEncoderResult(t *testing.T) {
 			name:      "empty",
 			numaNodes: 2,
 			wantPL: Payload{
-				NUMANodes:   2,
-				BusiestNode: 0,
-				Vectors:     map[int]string{},
+				NUMANodes:      2,
+				BusiestNode:    0,
+				VectorEncoding: VectorEncodingLEB89,
+				Vectors:        map[int]string{},
 			},
 		},
 		{
@@ -1067,10 +1136,11 @@ func TestEncoderResult(t *testing.T) {
 				{ID: ContainerID{Namespace: "ns1", PodName: "pod3", ContainerName: "cnt1"}, NUMANode: 0},
 			},
 			wantPL: Payload{
-				Containers:  3,
-				NUMANodes:   1,
-				BusiestNode: 0,
-				Vectors:     map[int]string{},
+				Containers:     3,
+				NUMANodes:      1,
+				BusiestNode:    0,
+				VectorEncoding: VectorEncodingLEB89,
+				Vectors:        map[int]string{},
 			},
 		},
 		{
@@ -1082,10 +1152,11 @@ func TestEncoderResult(t *testing.T) {
 				{ID: ContainerID{Namespace: "ns1", PodName: "pod3", ContainerName: "cnt1"}, NUMANode: 0},
 			},
 			wantPL: Payload{
-				Containers:  3,
-				NUMANodes:   2,
-				BusiestNode: 0,
-				Vectors:     map[int]string{},
+				Containers:     3,
+				NUMANodes:      2,
+				BusiestNode:    0,
+				VectorEncoding: VectorEncodingLEB89,
+				Vectors:        map[int]string{},
 			},
 		},
 		{
@@ -1097,10 +1168,11 @@ func TestEncoderResult(t *testing.T) {
 				{ID: ContainerID{Namespace: "ns1", PodName: "pod2", ContainerName: "cnt1"}, NUMANode: 0},
 			},
 			wantPL: Payload{
-				Containers:  2,
-				NUMANodes:   2,
-				BusiestNode: 0,
-				Vectors:     map[int]string{},
+				Containers:     2,
+				NUMANodes:      2,
+				BusiestNode:    0,
+				VectorEncoding: VectorEncodingLEB89,
+				Vectors:        map[int]string{},
 			},
 		},
 		{
@@ -1113,10 +1185,11 @@ func TestEncoderResult(t *testing.T) {
 				{ID: ContainerID{Namespace: "ns2", PodName: "pod1", ContainerName: "cnt1"}, NUMANode: 1},
 			},
 			wantPL: Payload{
-				Containers:  4,
-				NUMANodes:   2,
-				BusiestNode: 0,
-				Vectors:     map[int]string{1: "#"},
+				Containers:     4,
+				NUMANodes:      2,
+				BusiestNode:    0,
+				VectorEncoding: VectorEncodingLEB89,
+				Vectors:        map[int]string{1: "#"},
 			},
 		},
 		{
@@ -1129,10 +1202,11 @@ func TestEncoderResult(t *testing.T) {
 				{ID: ContainerID{Namespace: "ns2", PodName: "pod2", ContainerName: "cnt1"}, NUMANode: 1},
 			},
 			wantPL: Payload{
-				Containers:  4,
-				NUMANodes:   2,
-				BusiestNode: 0,
-				Vectors:     map[int]string{1: "!%"},
+				Containers:     4,
+				NUMANodes:      2,
+				BusiestNode:    0,
+				VectorEncoding: VectorEncodingLEB89,
+				Vectors:        map[int]string{1: "!%"},
 			},
 		},
 		{
@@ -1145,10 +1219,11 @@ func TestEncoderResult(t *testing.T) {
 				{ID: ContainerID{Namespace: "ns2", PodName: "pod3", ContainerName: "cnt1"}, NUMANode: 1},
 			},
 			wantPL: Payload{
-				Containers:  4,
-				NUMANodes:   2,
-				BusiestNode: 1,
-				Vectors:     map[int]string{0: "$"},
+				Containers:     4,
+				NUMANodes:      2,
+				BusiestNode:    1,
+				VectorEncoding: VectorEncodingLEB89,
+				Vectors:        map[int]string{0: "$"},
 			},
 		},
 		{
@@ -1162,10 +1237,11 @@ func TestEncoderResult(t *testing.T) {
 				{ID: ContainerID{Namespace: "ns3", PodName: "pod5", ContainerName: "cnt1"}, NUMANode: 2},
 			},
 			wantPL: Payload{
-				Containers:  5,
-				NUMANodes:   4,
-				BusiestNode: 0,
-				Vectors:     map[int]string{1: "!", 2: "'"},
+				Containers:     5,
+				NUMANodes:      4,
+				BusiestNode:    0,
+				VectorEncoding: VectorEncodingLEB89,
+				Vectors:        map[int]string{1: "!", 2: "'"},
 			},
 		},
 	}
@@ -1317,13 +1393,15 @@ func TestNewDecoder(t *testing.T) {
 		wantErr  error
 	}{
 		{
-			name:    "invalid payload",
-			payload: Payload{},
+			name: "invalid payload",
+			payload: Payload{
+				VectorEncoding: VectorEncodingLEB89,
+			},
 			wantErr: ErrInconsistentNUMANodes,
 		},
 		{
 			name:    "valid empty payload",
-			payload: EmptyPayload(),
+			payload: EmptyPayload(VectorEncodingLEB89),
 		},
 	}
 	for _, tt := range tests {
@@ -1408,17 +1486,17 @@ func TestDecoderResult(t *testing.T) {
 		name     string
 		payload  Payload
 		idents   []ContainerID
-		wantInfo *Info
+		wantInfo *EncodedInfo
 		wantErr  error
 	}{
 		{
 			name:     "empty",
-			payload:  EmptyPayload(),
-			wantInfo: NewInfo(),
+			payload:  EmptyPayload(VectorEncodingLEB89),
+			wantInfo: NewEncodedInfo(),
 		},
 		{
 			name:    "error path: inconsistent hashesSet and Containers - excess containers",
-			payload: EmptyPayload(),
+			payload: EmptyPayload(VectorEncodingLEB89),
 			idents: []ContainerID{
 				{Namespace: "ns1", PodName: "pod1", ContainerName: "cnt1"},
 			},
@@ -1427,8 +1505,9 @@ func TestDecoderResult(t *testing.T) {
 		{
 			name: "error path: inconsistent hashesSet and Containers - excess payload",
 			payload: Payload{
-				Containers: 2,
-				NUMANodes:  2,
+				Containers:     2,
+				NUMANodes:      2,
+				VectorEncoding: VectorEncodingLEB89,
 				Vectors: map[int]string{
 					1: "!",
 				},
@@ -1438,9 +1517,10 @@ func TestDecoderResult(t *testing.T) {
 		{
 			name: "error path: forged data: tampered vector encoding - inconsistent indexing",
 			payload: Payload{
-				Containers:  1,
-				NUMANodes:   2,
-				BusiestNode: 0,
+				Containers:     1,
+				NUMANodes:      2,
+				BusiestNode:    0,
+				VectorEncoding: VectorEncodingLEB89,
 				Vectors: map[int]string{
 					1: "$",
 				},
@@ -1453,9 +1533,10 @@ func TestDecoderResult(t *testing.T) {
 		{
 			name: "error path: forged data: tampered vector encoding - duplicate offset, same vector",
 			payload: Payload{
-				Containers:  5,
-				NUMANodes:   2,
-				BusiestNode: 0,
+				Containers:     5,
+				NUMANodes:      2,
+				BusiestNode:    0,
+				VectorEncoding: VectorEncodingLEB89,
 				Vectors: map[int]string{
 					1: "#!",
 				},
@@ -1472,9 +1553,10 @@ func TestDecoderResult(t *testing.T) {
 		{
 			name: "error path: forged data: tampered vector encoding - duplicate offset, different vector",
 			payload: Payload{
-				Containers:  5,
-				NUMANodes:   4,
-				BusiestNode: 0,
+				Containers:     5,
+				NUMANodes:      4,
+				BusiestNode:    0,
+				VectorEncoding: VectorEncodingLEB89,
 				Vectors: map[int]string{
 					1: "#",
 					2: "#",
@@ -1509,7 +1591,11 @@ func TestDecoderResult(t *testing.T) {
 			if gotInfo.Containers() != tt.wantInfo.Containers() {
 				t.Errorf("got info not equal size to expected info")
 			}
-			if !gotInfo.Equal(tt.wantInfo) {
+			encInfo, ok := gotInfo.(*EncodedInfo)
+			if !ok {
+				t.Fatalf("unexpected Info concrete type %T", gotInfo)
+			}
+			if !encInfo.Equal(tt.wantInfo) {
 				t.Errorf("got info not equal to expected info")
 			}
 		})
@@ -1639,12 +1725,12 @@ func decoderTestCases() []decoderTestCase {
 	return []decoderTestCase{
 		{
 			name:      "no idents",
-			payload:   EmptyPayload(),
+			payload:   EmptyPayload(VectorEncodingLEB89),
 			wantCount: 0,
 		},
 		{
 			name:    "trivial ident",
-			payload: EmptyPayload(), // TODO
+			payload: EmptyPayload(VectorEncodingLEB89), // TODO
 			idents: []ContainerID{
 				{
 					Namespace:     "ns1",
@@ -1656,7 +1742,7 @@ func decoderTestCases() []decoderTestCase {
 		},
 		{
 			name:    "duplicate ident",
-			payload: EmptyPayload(), // TODO
+			payload: EmptyPayload(VectorEncodingLEB89), // TODO
 			idents: []ContainerID{
 				{Namespace: "ns1", PodName: "pod1", ContainerName: "cnt1"},
 				{Namespace: "ns1", PodName: "pod1", ContainerName: "cnt1"},

@@ -58,6 +58,7 @@ var (
 	ErrUnknownContainer               = errors.New("unknown container")
 	ErrWrongNUMAAffinity              = errors.New("wrong NUMA affinity")
 	ErrUnsupportedUnknownNUMAAffinity = errors.New("unknown NUMA affinity not supported")
+	ErrUnsupportedVectorEncoding      = errors.New("unsupported vector encoding")
 )
 
 // Hasher implements the subset of stdlib methods this package needs.
@@ -102,6 +103,12 @@ type ContainerAffinity struct {
 	NUMANode int
 }
 
+// VectorEncoding identifies the encoding used for per-NUMA vectors.
+// Values are short strings (<=8 chars) allocated per-package.
+const (
+	VectorEncodingLEB89 string = "leb89"
+)
+
 // Payload is the encoder output which can be added to or derived from the NRT content
 // Payload represents (a slightly abstracted) wire data because this package wants
 // to avoid direct manipulation, therefore direct dependency, on NRT objects.
@@ -114,15 +121,18 @@ type Payload struct {
 	NUMANodes int `numaloc:"nn"`
 	// Index of busiest NUMA node, therefore omitted on wire
 	BusiestNode int `numaloc:"bn"`
-	// map NUMANodeID -> LEB89-encoded placement vector string
+	// VectorEncoding reports the meaning of the Vector data
+	VectorEncoding string `numaloc:"ve"`
+	// map NUMANodeID -> vector placement
 	Vectors map[int]string
 }
 
 // EmptyPayload constructs an empty valid Payload. Expected to be used mostly in tests.
-func EmptyPayload() Payload {
+func EmptyPayload(ve string) Payload {
 	return Payload{
-		NUMANodes: 1,
-		Vectors:   make(map[int]string),
+		NUMANodes:      1,
+		VectorEncoding: ve,
+		Vectors:        make(map[int]string),
 	}
 }
 
@@ -131,7 +141,10 @@ func EmptyPayload() Payload {
 // Validate will NOT check the semantic of the vectors: it will not validate
 // or decode the leb89 encoding; errors in the encoded vector can be
 // caught at decoding stage.
-func (pl Payload) Validate() error {
+func (pl Payload) Validate(ve string) error {
+	if pl.VectorEncoding != ve {
+		return ErrUnsupportedVectorEncoding
+	}
 	if pl.Containers < 0 {
 		return ErrInconsistentContainerSet
 	}
@@ -159,8 +172,9 @@ func (pl Payload) Validate() error {
 }
 
 type metaField struct {
-	name string
-	ptr  *int
+	name   string
+	ptrInt *int
+	ptrStr *string
 }
 
 func setMetaField(fields []metaField, rawField string) error {
@@ -175,13 +189,22 @@ func setMetaField(fields []metaField, rawField string) error {
 		return ErrMissingMetadataValue
 	}
 	fieldName := rawField[:idx]
+	if fieldName == "ve" {
+		fieldVal := rawField[idx+1:]
+		for _, field := range fields {
+			if field.name == fieldName {
+				*field.ptrStr = fieldVal
+			}
+		}
+		return nil
+	}
 	fieldVal, err := strconv.Atoi(rawField[idx+1:])
 	if err != nil {
 		return fmt.Errorf("error while parsing %q: %w", rawField, err)
 	}
 	for _, field := range fields {
 		if field.name == fieldName {
-			*field.ptr = fieldVal
+			*field.ptrInt = fieldVal
 			return nil
 		}
 	}
@@ -195,16 +218,20 @@ func setMetaField(fields []metaField, rawField string) error {
 func UnpackMetadataInto(pl *Payload, metadata string) error {
 	fields := []metaField{
 		{
-			name: "cc",
-			ptr:  &pl.Containers,
+			name:   "ve",
+			ptrStr: &pl.VectorEncoding,
 		},
 		{
-			name: "nn",
-			ptr:  &pl.NUMANodes,
+			name:   "cc",
+			ptrInt: &pl.Containers,
 		},
 		{
-			name: "bn",
-			ptr:  &pl.BusiestNode,
+			name:   "nn",
+			ptrInt: &pl.NUMANodes,
+		},
+		{
+			name:   "bn",
+			ptrInt: &pl.BusiestNode,
 		},
 	}
 	metaPfx := Prefix + Version + metadataSeparator
@@ -212,7 +239,12 @@ func UnpackMetadataInto(pl *Payload, metadata string) error {
 		return ErrMalformedMetadata
 	}
 	for _, field := range fields {
-		*field.ptr = UnknownMetadataValue
+		if field.ptrInt != nil {
+			*field.ptrInt = UnknownMetadataValue
+		}
+		if field.ptrStr != nil {
+			*field.ptrStr = ""
+		}
 	}
 	for _, rawField := range strings.Split(strings.TrimPrefix(metadata, metaPfx), metadataSeparator) {
 		if err := setMetaField(fields, rawField); err != nil {
@@ -225,6 +257,7 @@ func UnpackMetadataInto(pl *Payload, metadata string) error {
 // PackMetadata encodes the Payload metadata fields into a string representation.
 func (pl Payload) PackMetadata() string {
 	vals := []string{
+		fmt.Sprintf("ve=%s", pl.VectorEncoding),
 		fmt.Sprintf("cc=%d", pl.Containers),
 		fmt.Sprintf("nn=%d", pl.NUMANodes),
 		fmt.Sprintf("bn=%d", pl.BusiestNode),
@@ -349,23 +382,24 @@ func (enc *Encoder) EncodeContainer(namespace, podName, containerName string, nu
 // On failure, the Payload must be ignored and the error is not nil.
 func (enc *Encoder) Result() (Payload, error) {
 	pl := Payload{
-		Containers:  len(enc.numaLocality),
-		NUMANodes:   enc.numaNodes,
-		BusiestNode: -1,
-		Vectors:     make(map[int]string),
+		Containers:     len(enc.numaLocality),
+		NUMANodes:      enc.numaNodes,
+		BusiestNode:    -1,
+		VectorEncoding: VectorEncodingLEB89,
+		Vectors:        make(map[int]string),
 	}
 	if len(enc.numaLocality) == 0 {
 		pl.BusiestNode = 0
 		return pl, nil
 	}
-	hashes := sortedKeys(enc.numaLocality)
+	hashes := SortedKeys(enc.numaLocality)
 	perNuma := make(map[int][]int32, enc.numaNodes)
 	for idx, hval := range hashes {
 		numaNode := enc.numaLocality[hval]
 		perNuma[numaNode] = append(perNuma[numaNode], int32(idx))
 	}
 	busiestNodeCount := 0
-	numaNodes := sortedKeys(perNuma)
+	numaNodes := SortedKeys(perNuma)
 	for _, numaNode := range numaNodes {
 		vec := perNuma[numaNode]
 		if len(vec) > busiestNodeCount {
@@ -385,7 +419,13 @@ func (enc *Encoder) Result() (Payload, error) {
 
 // Info represents compactly-stored NUMA locality information.
 // This is the data the consumer side should store and keep up to date.
-type Info struct {
+type Info interface {
+	Containers() int
+	NUMAAffinity(id ContainerID) (int, error)
+	NUMAAffinityContainer(namespace, podName, containerName string) (int, error)
+}
+
+type EncodedInfo struct {
 	numaLocality map[uint64]int // hash->numaID
 }
 
@@ -393,36 +433,36 @@ type Info struct {
 // Info is *not* safe to be called concurrently except for the
 // NUMAAffinity/NUMAAffinityContainer query functions.
 // The caller must handle its own locking.
-func NewInfo() *Info {
-	return &Info{
+func NewEncodedInfo() *EncodedInfo {
+	return &EncodedInfo{
 		numaLocality: make(map[uint64]int),
 	}
 }
 
 // Containers returns the count of the containers we know about.
-func (info *Info) Containers() int {
+func (info *EncodedInfo) Containers() int {
 	return len(info.numaLocality)
 }
 
 // Equal returns true if this info has equal value to the given one, false otherwise.
-func (info *Info) Equal(obj *Info) bool {
+func (info *EncodedInfo) Equal(obj *EncodedInfo) bool {
 	return reflect.DeepEqual(info.numaLocality, obj.numaLocality)
 }
 
 // Update clones the numalocality semantics from the given `data`.
-func (info *Info) Update(data *Info) {
+func (info *EncodedInfo) Update(data *EncodedInfo) {
 	info.numaLocality = maps.Clone(data.numaLocality)
 }
 
 // Take moves the numalocality semantics from the given `data`.
-func (info *Info) Take(data *Info) {
+func (info *EncodedInfo) Take(data *EncodedInfo) {
 	info.numaLocality = data.numaLocality
 	data.numaLocality = nil
 }
 
 // NUMAAffinity returns the NUMA Node mapping of a given ContainerID.
 // On failure, the affinity is not relevant and the error is not nil
-func (info *Info) NUMAAffinity(id ContainerID) (int, error) {
+func (info *EncodedInfo) NUMAAffinity(id ContainerID) (int, error) {
 	numaNode, ok := info.numaLocality[id.Hash()]
 	if !ok {
 		return -1, ErrUnknownContainer
@@ -432,7 +472,7 @@ func (info *Info) NUMAAffinity(id ContainerID) (int, error) {
 
 // NUMAAffinityContainer returns the NUMA Node mapping of a given Container by its attributes.
 // On failure, the affinity is not relevant and the error is not nil
-func (info *Info) NUMAAffinityContainer(namespace, podName, containerName string) (int, error) {
+func (info *EncodedInfo) NUMAAffinityContainer(namespace, podName, containerName string) (int, error) {
 	return info.NUMAAffinity(ContainerID{Namespace: namespace, PodName: podName, ContainerName: containerName})
 }
 
@@ -451,7 +491,7 @@ type Decoder struct {
 // the given ContainerIDs.
 // If duplicate ContainerIDs are given the latest added wins and the previous IDs are silently discarded.
 func NewDecoder(pl Payload, ids ...ContainerID) (*Decoder, error) {
-	if err := pl.Validate(); err != nil {
+	if err := pl.Validate(VectorEncodingLEB89); err != nil {
 		return nil, err
 	}
 	dec := &Decoder{
@@ -489,14 +529,14 @@ func (dec *Decoder) DecodeContainer(namespace, podName, containerName string) *D
 // Result finalizes a Decoder and returns Info object the client code can consume to query the
 // affinity of the given ContainerID set from the Payload. On failure, error is not nil and
 // the Info must be ignored (it is usually `nil`, but is not guaranteed to be `nil`).
-func (dec *Decoder) Result() (*Info, error) {
+func (dec *Decoder) Result() (Info, error) {
 	if len(dec.hashesSet) != dec.payload.Containers {
 		return nil, ErrInconsistentContainerSet
 	}
 	// BusiestNode range, vector keys, and structural invariants
 	// are already validated by Payload.Validate() in NewDecoder.
-	hashes := sortedKeys(dec.hashesSet)
-	info := NewInfo()
+	hashes := SortedKeys(dec.hashesSet)
+	info := NewEncodedInfo()
 	for numaNode, vec := range dec.payload.Vectors {
 		offsets := DecodePerNUMAVector(vec)
 		for _, off := range offsets {
@@ -518,6 +558,15 @@ func (dec *Decoder) Result() (*Info, error) {
 	return info, nil
 }
 
+// SortedKeys returns the keys of a map as a sorted slice.
+// Once on Go 1.23+, replace every sortedKeys(m) call with
+// slices.Sorted(maps.Keys(m)), then delete both sortedKeys and mapKeys.
+func SortedKeys[K cmp.Ordered, V any](m map[K]V) []K {
+	keys := mapKeys(m)
+	slices.Sort(keys)
+	return keys
+}
+
 // mapKeys returns the keys of a map as a slice.
 // Once on Go 1.23+, replace with maps.Keys.
 func mapKeys[K comparable, V any](m map[K]V) []K {
@@ -525,14 +574,5 @@ func mapKeys[K comparable, V any](m map[K]V) []K {
 	for k := range m {
 		keys = append(keys, k)
 	}
-	return keys
-}
-
-// sortedKeys returns the keys of a map as a sorted slice.
-// Once on Go 1.23+, replace every sortedKeys(m) call with
-// slices.Sorted(maps.Keys(m)), then delete both sortedKeys and mapKeys.
-func sortedKeys[K cmp.Ordered, V any](m map[K]V) []K {
-	keys := mapKeys(m)
-	slices.Sort(keys)
 	return keys
 }
