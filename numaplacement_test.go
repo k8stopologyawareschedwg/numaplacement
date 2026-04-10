@@ -1730,7 +1730,7 @@ func decoderTestCases() []decoderTestCase {
 		},
 		{
 			name:    "trivial ident",
-			payload: EmptyPayload(VectorEncodingLEB89), // TODO
+			payload: EmptyPayload(VectorEncodingLEB89),
 			idents: []ContainerID{
 				{
 					Namespace:     "ns1",
@@ -1742,7 +1742,7 @@ func decoderTestCases() []decoderTestCase {
 		},
 		{
 			name:    "duplicate ident",
-			payload: EmptyPayload(VectorEncodingLEB89), // TODO
+			payload: EmptyPayload(VectorEncodingLEB89),
 			idents: []ContainerID{
 				{Namespace: "ns1", PodName: "pod1", ContainerName: "cnt1"},
 				{Namespace: "ns1", PodName: "pod1", ContainerName: "cnt1"},
