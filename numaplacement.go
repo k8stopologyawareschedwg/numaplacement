@@ -560,8 +560,9 @@ func (dec *Decoder) Result() (Info, error) {
 	for numaNode, vec := range dec.payload.Vectors {
 		offsets := DecodePerNUMAVector(vec)
 		for _, off := range offsets {
-			// leb89 encodes non-negative data. `off` can't be < 0.
-			if int(off) >= len(hashes) {
+			// Reject malformed/truncated vectors that decode to negative offsets.
+			// A negative offset would panic when indexing hashes[off].
+			if int(off) < 0 || int(off) >= len(hashes) {
 				return nil, ErrCorruptedNUMAVector
 			}
 			if _, ok := info.numaLocality[hashes[off]]; ok {
