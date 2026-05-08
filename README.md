@@ -12,6 +12,18 @@ Multi-affinity is not supported yet.
 
 pre-alpha. Subject to change without notice. Please wait for tagged and official releases.
 
+## Example
+
+A runnable end-to-end encoder/decoder example is available in:
+
+- `examples/codec/main.go`
+
+Run it with:
+
+```bash
+go run ./examples/codec
+```
+
 ## LICENSE
 
 apache v2
