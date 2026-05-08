@@ -13,11 +13,15 @@ leb89dump: tools/leb89dump/main.go  ## Build the LEB89 alphabet dump tool
 	go build -o _out/$@ ./tools/leb89dump
 
 PKGS = $(shell go list ./... | grep -v /tools/)
+PKGS_UNIT = $(shell go list ./... | grep -v /tools/ | grep -v /test/codec$$)
 
 ##@ testing
 
 test-unit:  ## Run unit tests
-	go test $(PKGS)
+	go test $(PKGS_UNIT)
+
+test-integration:  ## Run integration tests
+	go test ./test/codec/...
 
 test-unit-cover:  ## Run unit tests with coverage report
 	go test -coverprofile=coverage.out $(PKGS)
@@ -27,4 +31,24 @@ cover-view:  ## View the console coverage report
 
 cover-view-html:  ## View the HTML coverage report
 	go tool cover -html=coverage.out
-	
+
+##@ quality
+
+fmt-check: ## Check gofmt formatting
+	@out="$$(gofmt -l . 2>&1)"; status="$$?"; \
+	if [ "$$status" -ne 0 ]; then \
+		echo "$$out"; \
+		exit "$$status"; \
+	fi; \
+	unformatted="$$out"; \
+	if [ -n "$$unformatted" ]; then \
+		echo "The following files are not gofmt-formatted:"; \
+		echo "$$unformatted"; \
+		exit 1; \
+	fi
+
+lint: ## Run static checks
+	go vet $(PKGS)
+
+vuln-check: ## Run govulncheck against all packages
+	go run golang.org/x/vuln/cmd/govulncheck@latest ./...
