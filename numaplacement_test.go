@@ -1621,6 +1621,22 @@ func TestDecoderResult(t *testing.T) {
 			wantErr: ErrCorruptedNUMAVector,
 		},
 		{
+			name: "error path: forged data: malformed vector encoding - continuation only",
+			payload: Payload{
+				Containers:     1,
+				NUMANodes:      2,
+				BusiestNode:    0,
+				VectorEncoding: VectorEncodingLEB89,
+				Vectors: map[int]string{
+					1: "f",
+				},
+			},
+			idents: []ContainerID{
+				{Namespace: "ns1", PodName: "pod1", ContainerName: "cnt1"},
+			},
+			wantErr: ErrCorruptedNUMAVector,
+		},
+		{
 			name: "error path: forged data: tampered vector encoding - duplicate offset, same vector",
 			payload: Payload{
 				Containers:     5,
