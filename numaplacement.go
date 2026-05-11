@@ -34,9 +34,9 @@ const (
 	// Version is the version of this fingerprint. You should
 	// only compare compatible versions.
 	// A Version is always 4 bytes long, in the form v\X\X\X
-	Version              = "v001"
-	UnknownMetadataValue = -1
-	UnknownNUMAAffinity  = -1
+	Version = "v001"
+	// Unknown is the conventional unset/unknown value for int fields
+	Unknown = -1
 )
 
 const (
@@ -51,6 +51,7 @@ var (
 	ErrMissingMetadataValue           = errors.New("missing metadata value")
 	ErrInconsistentContainerSet       = errors.New("inconsistent container set")
 	ErrInconsistentBusiestNode        = errors.New("inconsistent busiest node data")
+	ErrUnknownBusiestNode             = errors.New("unknown busiest node")
 	ErrInconsistentNUMANodes          = errors.New("inconsistent NUMA node count")
 	ErrInconsistentNUMAVectors        = errors.New("inconsistent NUMA vector data")
 	ErrCorruptedNUMAVector            = errors.New("corrupted NUMA vector")
@@ -151,14 +152,14 @@ func (pl Payload) Validate(validateFunc func(Payload) error) error {
 	if pl.NUMANodes <= 0 {
 		return ErrInconsistentNUMANodes
 	}
-	if pl.BusiestNode < 0 || pl.BusiestNode >= pl.NUMANodes {
-		return ErrInconsistentBusiestNode
-	}
 	if pl.Containers == 0 && len(pl.Vectors) > 0 {
 		return ErrInconsistentNUMAVectors
 	}
 	if len(pl.Vectors) > pl.NUMANodes {
 		return ErrInconsistentNUMAVectors
+	}
+	if pl.BusiestNode >= pl.NUMANodes {
+		return ErrInconsistentBusiestNode
 	}
 	for numaNode := range pl.Vectors {
 		if numaNode < 0 || numaNode >= pl.NUMANodes {
@@ -237,7 +238,7 @@ func UnpackMetadataInto(pl *Payload, metadata string) error {
 	}
 	for _, field := range fields {
 		if field.ptrInt != nil {
-			*field.ptrInt = UnknownMetadataValue
+			*field.ptrInt = Unknown
 		}
 		if field.ptrStr != nil {
 			*field.ptrStr = ""
@@ -351,10 +352,10 @@ func (enc *Encoder) NUMANodes() int {
 // latest added wins and the previous instances are silently discarded.
 func (enc *Encoder) Encode(cas ...ContainerAffinity) (*Encoder, error) {
 	for _, ca := range cas {
-		if ca.NUMANode == UnknownNUMAAffinity {
+		if ca.NUMANode == Unknown {
 			return nil, ErrUnsupportedUnknownNUMAAffinity
 		}
-		if ca.NUMANode != UnknownNUMAAffinity && ca.NUMANode < 0 {
+		if ca.NUMANode != Unknown && ca.NUMANode < 0 {
 			return nil, ErrWrongNUMAAffinity
 		}
 		if ca.NUMANode > enc.numaNodes-1 {
@@ -386,7 +387,7 @@ func (enc *Encoder) Result() (Payload, error) {
 	pl := Payload{
 		Containers:     len(enc.numaLocality),
 		NUMANodes:      enc.numaNodes,
-		BusiestNode:    -1,
+		BusiestNode:    Unknown,
 		VectorEncoding: VectorEncodingLEB89,
 		Vectors:        make(map[int]string),
 	}
@@ -489,9 +490,16 @@ type Decoder struct {
 	hasher    *xxhash.Digest
 }
 
-func decoderValidate(pl Payload) error {
+// decoderValidateLEB89 validates the Payload fields under LEB89 encoding constraints.
+func decoderValidateLEB89(pl Payload) error {
 	if pl.VectorEncoding != VectorEncodingLEB89 {
 		return ErrUnsupportedVectorEncoding
+	}
+	if pl.BusiestNode == Unknown {
+		return ErrUnknownBusiestNode
+	}
+	if pl.BusiestNode < 0 || pl.BusiestNode >= pl.NUMANodes {
+		return ErrInconsistentBusiestNode
 	}
 	// LEB89 encoding omits the busiest node (N-1 optimization),
 	// so the vector count must be strictly less than NUMANodes
@@ -499,11 +507,10 @@ func decoderValidate(pl Payload) error {
 	if len(pl.Vectors) >= pl.NUMANodes {
 		return ErrInconsistentNUMAVectors
 	}
-	for numaNode := range pl.Vectors {
-		if numaNode == pl.BusiestNode {
-			return ErrCorruptedNUMAVector
-		}
+	if _, ok := pl.Vectors[pl.BusiestNode]; ok {
+		return ErrCorruptedNUMAVector
 	}
+
 	return nil
 }
 
@@ -511,7 +518,7 @@ func decoderValidate(pl Payload) error {
 // the given ContainerIDs.
 // If duplicate ContainerIDs are given the latest added wins and the previous IDs are silently discarded.
 func NewDecoder(pl Payload, ids ...ContainerID) (*Decoder, error) {
-	if err := pl.Validate(decoderValidate); err != nil {
+	if err := pl.Validate(decoderValidateLEB89); err != nil {
 		return nil, err
 	}
 	dec := &Decoder{

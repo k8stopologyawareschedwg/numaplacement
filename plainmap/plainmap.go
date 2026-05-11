@@ -65,10 +65,10 @@ func (enc *Encoder) NUMANodes() int {
 // latest added wins and the previous instances are silently discarded.
 func (enc *Encoder) Encode(cas ...numaplacement.ContainerAffinity) (*Encoder, error) {
 	for _, ca := range cas {
-		if ca.NUMANode == numaplacement.UnknownNUMAAffinity {
+		if ca.NUMANode == numaplacement.Unknown {
 			return nil, numaplacement.ErrUnsupportedUnknownNUMAAffinity
 		}
-		if ca.NUMANode != numaplacement.UnknownNUMAAffinity && ca.NUMANode < 0 {
+		if ca.NUMANode != numaplacement.Unknown && ca.NUMANode < 0 {
 			return nil, numaplacement.ErrWrongNUMAAffinity
 		}
 		if ca.NUMANode > enc.numaNodes-1 {
@@ -99,7 +99,7 @@ func (enc *Encoder) Result() (numaplacement.Payload, error) {
 	pl := numaplacement.Payload{
 		Containers:     len(enc.numaLocality),
 		NUMANodes:      enc.numaNodes,
-		BusiestNode:    0,
+		BusiestNode:    numaplacement.Unknown,
 		VectorEncoding: VectorEncodingPlain,
 		Vectors:        make(map[int]string),
 	}
