@@ -366,7 +366,7 @@ func TestNewEncoder(t *testing.T) {
 	}{
 		{
 			name:      "negative NUMA Nodes",
-			numaNodes: -1,
+			numaNodes: numaplacement.Unknown,
 			wantErr:   numaplacement.ErrInconsistentNUMANodes,
 		},
 		{
@@ -436,7 +436,7 @@ func TestEncoderResult(t *testing.T) {
 			numaNodes: 2,
 			wantPL: numaplacement.Payload{
 				NUMANodes:      2,
-				BusiestNode:    0,
+				BusiestNode:    numaplacement.Unknown,
 				VectorEncoding: VectorEncodingPlain,
 				Vectors:        map[int]string{},
 			},
@@ -452,7 +452,7 @@ func TestEncoderResult(t *testing.T) {
 			wantPL: numaplacement.Payload{
 				Containers:     3,
 				NUMANodes:      1,
-				BusiestNode:    0,
+				BusiestNode:    numaplacement.Unknown,
 				VectorEncoding: VectorEncodingPlain,
 				Vectors:        map[int]string{0: "ns1/pod1/cnt1|ns1/pod2/cnt1|ns1/pod3/cnt1"},
 			},
@@ -468,7 +468,7 @@ func TestEncoderResult(t *testing.T) {
 			wantPL: numaplacement.Payload{
 				Containers:     3,
 				NUMANodes:      2,
-				BusiestNode:    0,
+				BusiestNode:    numaplacement.Unknown,
 				VectorEncoding: VectorEncodingPlain,
 				Vectors:        map[int]string{0: "ns1/pod1/cnt1|ns1/pod2/cnt1|ns1/pod3/cnt1"},
 			},
@@ -484,7 +484,7 @@ func TestEncoderResult(t *testing.T) {
 			wantPL: numaplacement.Payload{
 				Containers:     2,
 				NUMANodes:      2,
-				BusiestNode:    0,
+				BusiestNode:    numaplacement.Unknown,
 				VectorEncoding: VectorEncodingPlain,
 				Vectors:        map[int]string{0: "ns1/pod1/cnt1|ns1/pod2/cnt1"},
 			},
@@ -501,7 +501,7 @@ func TestEncoderResult(t *testing.T) {
 			wantPL: numaplacement.Payload{
 				Containers:     4,
 				NUMANodes:      2,
-				BusiestNode:    0,
+				BusiestNode:    numaplacement.Unknown,
 				VectorEncoding: VectorEncodingPlain,
 				Vectors:        map[int]string{0: "ns1/pod1/cnt1|ns1/pod2/cnt1|ns1/pod3/cnt1", 1: "ns2/pod1/cnt1"},
 			},
@@ -518,7 +518,7 @@ func TestEncoderResult(t *testing.T) {
 			wantPL: numaplacement.Payload{
 				Containers:     4,
 				NUMANodes:      2,
-				BusiestNode:    0,
+				BusiestNode:    numaplacement.Unknown,
 				VectorEncoding: VectorEncodingPlain,
 				Vectors:        map[int]string{0: "ns1/pod1/cnt1|ns1/pod2/cnt1", 1: "ns2/pod1/cnt1|ns2/pod2/cnt1"},
 			},
@@ -535,7 +535,7 @@ func TestEncoderResult(t *testing.T) {
 			wantPL: numaplacement.Payload{
 				Containers:     4,
 				NUMANodes:      2,
-				BusiestNode:    0,
+				BusiestNode:    numaplacement.Unknown,
 				VectorEncoding: VectorEncodingPlain,
 				Vectors:        map[int]string{0: "ns1/pod1/cnt1", 1: "ns2/pod1/cnt1|ns2/pod2/cnt1|ns2/pod3/cnt1"},
 			},
@@ -553,7 +553,7 @@ func TestEncoderResult(t *testing.T) {
 			wantPL: numaplacement.Payload{
 				Containers:     5,
 				NUMANodes:      4,
-				BusiestNode:    0,
+				BusiestNode:    numaplacement.Unknown,
 				VectorEncoding: VectorEncodingPlain,
 				Vectors:        map[int]string{0: "ns1/pod1/cnt1|ns1/pod2/cnt1|ns1/pod3/cnt1", 1: "ns2/pod4/cnt1", 2: "ns3/pod5/cnt1"},
 			},
@@ -831,7 +831,7 @@ func TestDecoderResult(t *testing.T) {
 			payload: numaplacement.Payload{
 				Containers:     1,
 				NUMANodes:      2,
-				BusiestNode:    0,
+				BusiestNode:    numaplacement.Unknown,
 				VectorEncoding: VectorEncodingPlain,
 				Vectors: map[int]string{
 					1: "$",
@@ -847,7 +847,7 @@ func TestDecoderResult(t *testing.T) {
 			payload: numaplacement.Payload{
 				Containers:     3,
 				NUMANodes:      2,
-				BusiestNode:    0,
+				BusiestNode:    numaplacement.Unknown,
 				VectorEncoding: VectorEncodingPlain,
 				Vectors: map[int]string{
 					1: "ns1/pod1/cnt1|ns1/pod1/cnt1",
@@ -865,7 +865,7 @@ func TestDecoderResult(t *testing.T) {
 			payload: numaplacement.Payload{
 				Containers:     3,
 				NUMANodes:      4,
-				BusiestNode:    0,
+				BusiestNode:    numaplacement.Unknown,
 				VectorEncoding: VectorEncodingPlain,
 				Vectors: map[int]string{
 					1: "ns1/pod1/cnt1",
@@ -1049,7 +1049,7 @@ func encoderTestCases() []encoderTestCase {
 			affinities: []numaplacement.ContainerAffinity{
 				{
 					ID:       numaplacement.ContainerID{Namespace: "ns1", PodName: "pod1", ContainerName: "cnt1"},
-					NUMANode: numaplacement.UnknownNUMAAffinity,
+					NUMANode: numaplacement.Unknown,
 				},
 			},
 			wantErr: numaplacement.ErrUnsupportedUnknownNUMAAffinity,

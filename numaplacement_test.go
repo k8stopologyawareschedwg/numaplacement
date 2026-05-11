@@ -245,9 +245,9 @@ func TestPackUnpackMetadataRoundtrip(t *testing.T) {
 		{name: "large values", vectorEncoding: VectorEncodingLEB89, containers: 128, numaNodes: 8, busiestNode: 7},
 		{name: "busiest is first node", vectorEncoding: VectorEncodingLEB89, containers: 10, numaNodes: 4, busiestNode: 0},
 		{name: "busiest is last node", vectorEncoding: VectorEncodingLEB89, containers: 10, numaNodes: 4, busiestNode: 3},
-		{name: "negative busiest node", vectorEncoding: VectorEncodingLEB89, containers: 5, numaNodes: 2, busiestNode: -1},
-		{name: "all negative", vectorEncoding: VectorEncodingLEB89, containers: -1, numaNodes: -1, busiestNode: -1},
-		{name: "mixed negative positive", vectorEncoding: VectorEncodingLEB89, containers: -1, numaNodes: 2, busiestNode: 0},
+		{name: "negative busiest node", vectorEncoding: VectorEncodingLEB89, containers: 5, numaNodes: 2, busiestNode: Unknown},
+		{name: "all negative", vectorEncoding: VectorEncodingLEB89, containers: Unknown, numaNodes: Unknown, busiestNode: Unknown},
+		{name: "mixed negative positive", vectorEncoding: VectorEncodingLEB89, containers: Unknown, numaNodes: 2, busiestNode: Unknown},
 		{name: "large container count", vectorEncoding: VectorEncodingLEB89, containers: 10000, numaNodes: 2, busiestNode: 1},
 		{name: "many NUMA nodes", vectorEncoding: VectorEncodingLEB89, containers: 16, numaNodes: 64, busiestNode: 32},
 		{name: "plain encoding", vectorEncoding: "plain", containers: 4, numaNodes: 2, busiestNode: 1},
@@ -300,7 +300,7 @@ func TestPackMetadata(t *testing.T) {
 		},
 		{
 			name:     "negative values",
-			payload:  Payload{VectorEncoding: VectorEncodingLEB89, Containers: -1, NUMANodes: -1, BusiestNode: -1},
+			payload:  Payload{VectorEncoding: VectorEncodingLEB89, Containers: Unknown, NUMANodes: Unknown, BusiestNode: Unknown},
 			expected: "npv0v001::ve=leb89::cc=-1::nn=-1::bn=-1",
 		},
 		{
@@ -424,7 +424,7 @@ func TestUnpackMetadataPartialUpdates(t *testing.T) {
 	if pl.VectorEncoding != "" {
 		t.Errorf("VectorEncoding = %q, want empty", pl.VectorEncoding)
 	}
-	if pl.Containers != UnknownMetadataValue { // overridden to "unknown"
+	if pl.Containers != Unknown { // overridden to "unknown"
 		t.Errorf("Containers = %d, want -1", pl.Containers)
 	}
 	if pl.NUMANodes != 8 {
@@ -435,7 +435,7 @@ func TestUnpackMetadataPartialUpdates(t *testing.T) {
 	}
 }
 
-func TestPayloadValidate(t *testing.T) {
+func TestPayloadValidateLEB89(t *testing.T) {
 	tests := []struct {
 		name    string
 		pl      Payload
@@ -446,7 +446,7 @@ func TestPayloadValidate(t *testing.T) {
 			pl: Payload{
 				VectorEncoding: VectorEncodingLEB89,
 			},
-			wantErr: ErrInconsistentNUMAVectors,
+			wantErr: ErrInconsistentBusiestNode,
 		},
 		{
 			name: "mismatching vector encoding",
@@ -466,18 +466,28 @@ func TestPayloadValidate(t *testing.T) {
 		{
 			name: "negative containers",
 			pl: Payload{
-				Containers:     -1,
+				Containers:     Unknown,
 				NUMANodes:      1, // needed to avoid ErrInconsistentNUMANodes
 				VectorEncoding: VectorEncodingLEB89,
 			},
 			wantErr: ErrInconsistentContainerSet,
 		},
 		{
+			name: "unknown busiest node",
+			pl: Payload{
+				Containers:     1,
+				NUMANodes:      1,
+				BusiestNode:    Unknown,
+				VectorEncoding: VectorEncodingLEB89,
+			},
+			wantErr: ErrUnknownBusiestNode,
+		},
+		{
 			name: "negative busiest node",
 			pl: Payload{
 				Containers:     1,
 				NUMANodes:      1,
-				BusiestNode:    -1,
+				BusiestNode:    -3,
 				VectorEncoding: VectorEncodingLEB89,
 			},
 			wantErr: ErrInconsistentBusiestNode,
@@ -572,7 +582,7 @@ func TestPayloadValidate(t *testing.T) {
 				NUMANodes:      0,
 				VectorEncoding: VectorEncodingLEB89,
 			},
-			wantErr: ErrInconsistentNUMAVectors,
+			wantErr: ErrInconsistentBusiestNode,
 		},
 		{
 			name: "typical valid payload",
@@ -681,7 +691,7 @@ func TestPayloadValidate(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotErr := tt.pl.Validate(decoderValidate)
+			gotErr := tt.pl.Validate(decoderValidateLEB89)
 			if !errors.Is(gotErr, tt.wantErr) {
 				t.Errorf("got error = %q, want = %q", gotErr, tt.wantErr)
 			}
@@ -700,7 +710,7 @@ func TestPayloadValidateSharedChecks(t *testing.T) {
 		{
 			name: "negative containers",
 			pl: Payload{
-				Containers: -1,
+				Containers: Unknown,
 				NUMANodes:  1,
 			},
 			wantErr: ErrInconsistentContainerSet,
@@ -1110,7 +1120,12 @@ func TestNewEncoder(t *testing.T) {
 	}{
 		{
 			name:      "negative NUMA Nodes",
-			numaNodes: -1,
+			numaNodes: -2,
+			wantErr:   ErrInconsistentNUMANodes,
+		},
+		{
+			name:      "unknown NUMA Nodes",
+			numaNodes: Unknown,
 			wantErr:   ErrInconsistentNUMANodes,
 		},
 		{
@@ -1487,7 +1502,7 @@ func TestNewDecoder(t *testing.T) {
 			payload: Payload{
 				VectorEncoding: VectorEncodingLEB89,
 			},
-			wantErr: ErrInconsistentNUMAVectors,
+			wantErr: ErrInconsistentBusiestNode,
 		},
 		{
 			name:    "valid empty payload",
@@ -1740,7 +1755,7 @@ func encoderTestCases() []encoderTestCase {
 			affinities: []ContainerAffinity{
 				{
 					ID:       ContainerID{Namespace: "ns1", PodName: "pod1", ContainerName: "cnt1"},
-					NUMANode: UnknownNUMAAffinity,
+					NUMANode: Unknown,
 				},
 			},
 			wantErr: ErrUnsupportedUnknownNUMAAffinity,
