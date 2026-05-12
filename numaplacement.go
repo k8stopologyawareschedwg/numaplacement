@@ -161,6 +161,7 @@ func (pl Payload) Validate(validateFunc func(Payload) error) error {
 	if pl.BusiestNode >= pl.NUMANodes {
 		return ErrInconsistentBusiestNode
 	}
+	// test
 	for numaNode := range pl.Vectors {
 		if numaNode < 0 || numaNode >= pl.NUMANodes {
 			return ErrCorruptedNUMAVector
