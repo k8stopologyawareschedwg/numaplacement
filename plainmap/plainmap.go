@@ -179,6 +179,9 @@ func decoderValidate(pl numaplacement.Payload) error {
 	if pl.VectorEncoding != VectorEncodingPlain {
 		return numaplacement.ErrUnsupportedVectorEncoding
 	}
+	if pl.BusiestNode != numaplacement.Unknown {
+		return numaplacement.ErrInconsistentBusiestNode
+	}
 	return nil
 }
 
