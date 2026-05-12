@@ -129,9 +129,10 @@ type Payload struct {
 }
 
 // EmptyPayload constructs an empty valid Payload. Expected to be used mostly in tests.
-func EmptyPayload(ve string) Payload {
+func EmptyPayload(ve string, busiestNode int) Payload {
 	return Payload{
 		NUMANodes:      1,
+		BusiestNode:    busiestNode,
 		VectorEncoding: ve,
 		Vectors:        make(map[int]string),
 	}

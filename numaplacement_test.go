@@ -1506,14 +1506,14 @@ func TestNewDecoder(t *testing.T) {
 		},
 		{
 			name:    "valid empty payload",
-			payload: EmptyPayload(VectorEncodingLEB89),
+			payload: EmptyPayload(VectorEncodingLEB89, 0),
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			dec, gotErr := NewDecoder(tt.payload)
 			if !errors.Is(gotErr, tt.wantErr) {
-				t.Errorf("got error %v want %v", gotErr, tt.wantErr)
+				t.Fatalf("got error %v want %v", gotErr, tt.wantErr)
 			}
 			if tt.wantErr != nil {
 				return
@@ -1596,12 +1596,12 @@ func TestDecoderResult(t *testing.T) {
 	}{
 		{
 			name:     "empty",
-			payload:  EmptyPayload(VectorEncodingLEB89),
+			payload:  EmptyPayload(VectorEncodingLEB89, 0),
 			wantInfo: NewEncodedInfo(),
 		},
 		{
 			name:    "error path: inconsistent hashesSet and Containers - excess containers",
-			payload: EmptyPayload(VectorEncodingLEB89),
+			payload: EmptyPayload(VectorEncodingLEB89, 0),
 			idents: []ContainerID{
 				{Namespace: "ns1", PodName: "pod1", ContainerName: "cnt1"},
 			},
@@ -1846,12 +1846,12 @@ func decoderTestCases() []decoderTestCase {
 	return []decoderTestCase{
 		{
 			name:      "no idents",
-			payload:   EmptyPayload(VectorEncodingLEB89),
+			payload:   EmptyPayload(VectorEncodingLEB89, 0),
 			wantCount: 0,
 		},
 		{
 			name:    "trivial ident",
-			payload: EmptyPayload(VectorEncodingLEB89),
+			payload: EmptyPayload(VectorEncodingLEB89, 0),
 			idents: []ContainerID{
 				{
 					Namespace:     "ns1",
@@ -1863,7 +1863,7 @@ func decoderTestCases() []decoderTestCase {
 		},
 		{
 			name:    "duplicate ident",
-			payload: EmptyPayload(VectorEncodingLEB89),
+			payload: EmptyPayload(VectorEncodingLEB89, 0),
 			idents: []ContainerID{
 				{Namespace: "ns1", PodName: "pod1", ContainerName: "cnt1"},
 				{Namespace: "ns1", PodName: "pod1", ContainerName: "cnt1"},

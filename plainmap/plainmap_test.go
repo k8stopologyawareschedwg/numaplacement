@@ -708,19 +708,19 @@ func TestNewDecoder(t *testing.T) {
 	}{
 		{
 			name:    "invalid payload",
-			payload: numaplacement.EmptyPayload(numaplacement.VectorEncodingLEB89),
+			payload: numaplacement.EmptyPayload(numaplacement.VectorEncodingLEB89, numaplacement.Unknown),
 			wantErr: numaplacement.ErrUnsupportedVectorEncoding,
 		},
 		{
 			name:    "valid empty payload",
-			payload: numaplacement.EmptyPayload(VectorEncodingPlain),
+			payload: numaplacement.EmptyPayload(VectorEncodingPlain, numaplacement.Unknown),
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			dec, gotErr := NewDecoder(tt.payload)
 			if !errors.Is(gotErr, tt.wantErr) {
-				t.Errorf("got error %v want %v", gotErr, tt.wantErr)
+				t.Fatalf("got error %v want %v", gotErr, tt.wantErr)
 			}
 			if tt.wantErr != nil {
 				return
@@ -803,12 +803,12 @@ func TestDecoderResult(t *testing.T) {
 	}{
 		{
 			name:     "empty",
-			payload:  numaplacement.EmptyPayload(VectorEncodingPlain),
+			payload:  numaplacement.EmptyPayload(VectorEncodingPlain, numaplacement.Unknown),
 			wantInfo: NewPlainInfo(),
 		},
 		{
 			name:    "error path: inconsistent hashesSet and Containers - excess containers",
-			payload: numaplacement.EmptyPayload(VectorEncodingPlain),
+			payload: numaplacement.EmptyPayload(VectorEncodingPlain, numaplacement.Unknown),
 			idents: []numaplacement.ContainerID{
 				{Namespace: "ns1", PodName: "pod1", ContainerName: "cnt1"},
 			},
@@ -819,6 +819,7 @@ func TestDecoderResult(t *testing.T) {
 			payload: numaplacement.Payload{
 				Containers:     2,
 				NUMANodes:      2,
+				BusiestNode:    numaplacement.Unknown,
 				VectorEncoding: VectorEncodingPlain,
 				Vectors: map[int]string{
 					1: "!",
@@ -958,6 +959,7 @@ func TestDecoderResultMalformedVectorStrings(t *testing.T) {
 		{
 			name: "leading separator",
 			payload: numaplacement.Payload{
+				BusiestNode:    numaplacement.Unknown,
 				Containers:     1,
 				NUMANodes:      2,
 				VectorEncoding: VectorEncodingPlain,
@@ -973,6 +975,7 @@ func TestDecoderResultMalformedVectorStrings(t *testing.T) {
 		{
 			name: "trailing separator",
 			payload: numaplacement.Payload{
+				BusiestNode:    numaplacement.Unknown,
 				Containers:     1,
 				NUMANodes:      2,
 				VectorEncoding: VectorEncodingPlain,
@@ -988,6 +991,7 @@ func TestDecoderResultMalformedVectorStrings(t *testing.T) {
 		{
 			name: "double separator",
 			payload: numaplacement.Payload{
+				BusiestNode:    numaplacement.Unknown,
 				Containers:     2,
 				NUMANodes:      2,
 				VectorEncoding: VectorEncodingPlain,
@@ -1140,12 +1144,12 @@ func decoderTestCases() []decoderTestCase {
 	return []decoderTestCase{
 		{
 			name:      "no idents",
-			payload:   numaplacement.EmptyPayload(VectorEncodingPlain),
+			payload:   numaplacement.EmptyPayload(VectorEncodingPlain, numaplacement.Unknown),
 			wantCount: 0,
 		},
 		{
 			name:    "trivial ident",
-			payload: numaplacement.EmptyPayload(VectorEncodingPlain),
+			payload: numaplacement.EmptyPayload(VectorEncodingPlain, numaplacement.Unknown),
 			idents: []numaplacement.ContainerID{
 				{
 					Namespace:     "ns1",
@@ -1157,7 +1161,7 @@ func decoderTestCases() []decoderTestCase {
 		},
 		{
 			name:    "duplicate ident",
-			payload: numaplacement.EmptyPayload(VectorEncodingPlain),
+			payload: numaplacement.EmptyPayload(VectorEncodingPlain, numaplacement.Unknown),
 			idents: []numaplacement.ContainerID{
 				{Namespace: "ns1", PodName: "pod1", ContainerName: "cnt1"},
 				{Namespace: "ns1", PodName: "pod1", ContainerName: "cnt1"},
