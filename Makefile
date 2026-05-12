@@ -13,7 +13,7 @@ leb89dump: tools/leb89dump/main.go  ## Build the LEB89 alphabet dump tool
 	go build -o _out/$@ ./tools/leb89dump
 
 PKGS = $(shell go list ./... | grep -v /tools/)
-PKGS_UNIT = $(shell go list ./... | grep -v /tools/ | grep -v /test/codec$$)
+PKGS_UNIT = $(shell go list ./... | grep -vE 'tools/|test/codec$$|examples/')
 
 ##@ testing
 
