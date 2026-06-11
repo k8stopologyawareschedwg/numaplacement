@@ -1112,7 +1112,7 @@ func TestDecodePerNUMAVectorKnownStrings(t *testing.T) {
 	}
 }
 
-func TestNewEncoder(t *testing.T) {
+func TestNewEncoderNUMANodes(t *testing.T) {
 	tests := []struct {
 		name      string
 		numaNodes int
@@ -1165,6 +1165,55 @@ func TestNewEncoder(t *testing.T) {
 			}
 			if enc.NUMANodes() != tt.numaNodes {
 				t.Errorf("NUMA nodes mismatch got %d expected %d", enc.NUMANodes(), tt.numaNodes)
+			}
+		})
+	}
+}
+
+func TestNewEncoderWithAffinities(t *testing.T) {
+	type input struct {
+		numaNodes int
+		affs      []ContainerAffinity
+	}
+	tests := []struct {
+		name string
+		in   input
+	}{
+		{
+			name: "no affinities",
+			in: input{
+				numaNodes: 2,
+				affs:      []ContainerAffinity{},
+			},
+		},
+		{
+			name: "multiple affinities",
+			in: input{
+				numaNodes: 2,
+				affs: []ContainerAffinity{
+					{ID: ContainerID{Namespace: "ns1", PodName: "pod1", ContainerName: "cnt1"}, NUMANode: 0},
+					{ID: ContainerID{Namespace: "ns1", PodName: "pod2", ContainerName: "cnt1"}, NUMANode: 0},
+					{ID: ContainerID{Namespace: "ns1", PodName: "pod3", ContainerName: "cnt1"}, NUMANode: 1},
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			enc, err := NewEncoder(tt.in.numaNodes, tt.in.affs...)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			gotAffinities := enc.containersAffinities
+			if diff := cmp.Diff(gotAffinities, tt.in.affs); diff != "" {
+				t.Errorf("affinities mismatch: %v", diff)
+			}
+
+			gotLocality := enc.numaLocality
+			if len(gotLocality) != len(tt.in.affs) {
+				t.Errorf("locality mismatch got %d expected %d", len(gotLocality), len(tt.in.affs))
 			}
 		})
 	}
@@ -1729,6 +1778,49 @@ type encoderTestCase struct {
 	affinities []ContainerAffinity
 	wantCount  int
 	wantErr    error
+}
+
+func TestEncoderRepr(t *testing.T) {
+	testcases := []struct {
+		name string
+		enc  *Encoder
+		want string
+	}{
+		{
+			name: "nil encoder",
+			enc:  nil,
+			want: "",
+		},
+		{
+			name: "empty encoder",
+			enc: &Encoder{
+				numaNodes: 2,
+			},
+			want: ">NUMA affinities:  processing 0 containers; total 2 NUMA nodes\n",
+		},
+		{
+			name: "encoder with affinities",
+			enc: &Encoder{
+				numaNodes: 4,
+				containersAffinities: []ContainerAffinity{
+					{ID: ContainerID{Namespace: "ns1", PodName: "pod1", ContainerName: "cnt1"}, NUMANode: 0},
+					{ID: ContainerID{Namespace: "ns1", PodName: "pod2", ContainerName: "cnt1"}, NUMANode: 1},
+					{ID: ContainerID{Namespace: "ns2", PodName: "pod1", ContainerName: "cnt1"}, NUMANode: 2},
+					{ID: ContainerID{Namespace: "ns2", PodName: "pod2", ContainerName: "cnt1"}, NUMANode: 3},
+				},
+			},
+			want: ">NUMA affinities:  processing 4 containers; total 4 NUMA nodes\n+ ns1/pod1/cnt1 -> 0\n+ ns1/pod2/cnt1 -> 1\n+ ns2/pod1/cnt1 -> 2\n+ ns2/pod2/cnt1 -> 3\n",
+		},
+	}
+
+	for _, tt := range testcases {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.enc.Repr()
+			if got != tt.want {
+				t.Errorf("expected %s, got %s", tt.want, got)
+			}
+		})
+	}
 }
 
 func encoderTestCases() []encoderTestCase {

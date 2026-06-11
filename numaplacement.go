@@ -315,9 +315,10 @@ func DecodePerNUMAVector(s string) []int32 {
 // Containers can be added in a streaming manner, not necessarily in one go,
 // but once the Payload is created, the Encoder instance must be discarded.
 type Encoder struct {
-	numaNodes    int
-	numaLocality map[uint64]int // hash->numaID
-	hasher       *xxhash.Digest
+	numaNodes            int
+	numaLocality         map[uint64]int // hash->numaID
+	hasher               *xxhash.Digest
+	containersAffinities []ContainerAffinity
 }
 
 // NewEncoder creates a new Encoder object for the given NUMA Nodes count,
@@ -331,9 +332,10 @@ func NewEncoder(numaNodes int, cas ...ContainerAffinity) (*Encoder, error) {
 		return nil, ErrInconsistentNUMANodes
 	}
 	enc := &Encoder{
-		numaNodes:    numaNodes,
-		hasher:       xxhash.New(),
-		numaLocality: make(map[uint64]int, len(cas)),
+		numaNodes:            numaNodes,
+		hasher:               xxhash.New(),
+		numaLocality:         make(map[uint64]int, len(cas)),
+		containersAffinities: []ContainerAffinity{},
 	}
 	return enc.Encode(cas...)
 }
@@ -364,6 +366,7 @@ func (enc *Encoder) Encode(cas ...ContainerAffinity) (*Encoder, error) {
 		}
 		hval := ca.ID.HashWith(enc.hasher)
 		enc.numaLocality[hval] = ca.NUMANode
+		enc.containersAffinities = append(enc.containersAffinities, ca)
 	}
 	return enc, nil
 }
@@ -419,6 +422,21 @@ func (enc *Encoder) Result() (Payload, error) {
 		pl.Vectors[numaNode] = EncodePerNUMAVector(vec)
 	}
 	return pl, nil
+}
+
+// Repr returns a human-readable string representation of the encoded containers affinities.
+func (enc *Encoder) Repr() string {
+	if enc == nil {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf(">NUMA affinities:  processing %d containers; total %d NUMA nodes\n", len(enc.containersAffinities), enc.numaNodes))
+	for _, aff := range enc.containersAffinities {
+		sb.WriteString("+ " + aff.ID.String() + " -> " + strconv.Itoa(aff.NUMANode) + "\n")
+	}
+
+	return sb.String()
 }
 
 // Info represents compactly-stored NUMA locality information.
